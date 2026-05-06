@@ -751,8 +751,6 @@ report the lift and hit rate for campaigns that target the top 10% and top 50%
 of potential customers.
 :::
 
-The Lift curve
-
 ```{python}
 #| eval: true
 #| code-fold: true
