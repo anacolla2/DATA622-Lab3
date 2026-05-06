@@ -58,7 +58,7 @@ from sklearn.calibration import calibration_curve
 ## The Data:
 
 ```{python}
-bank=pd.read_csv("https://raw.githubusercontent.com/georgehagstrom/DATA622Spring2026/refs/heads/main/website/assignments/labs/labData/bank_marketing_dataset.csv")
+bank=pd.read_csv("https://raw.githubusercontent.com/georgehagstrom/DATA622Spring2026/refs/heads/main/website/assignments/labs/labData/bank_marketing_dataset.csv", header= 0)
 bank= bank.drop(columns=["Unnamed: 0"])
 bank.head(10)
 ```
@@ -479,11 +479,14 @@ x_train, x_test, y_train, y_test, epochs_train, epochs_test= train_test_split(x,
 model= LogisticRegression(max_iter=10000)
 ```
 
-Another characteristic of the data that should be addressed are the differeing
+Another characteristic of the data that should be addressed are the differing
 scales of the variables in the model. `standard scaler` standardizes by using
 the average and standard deviation of the training split, which is then used as
-transform on the test split. The logistic regression model is then fit on this
-transformation as a baseline model.
+transform on the test split.[^3] The logistic regression model is then fit on
+this transformation as a baseline model.
+
+[^3]: ISLP- pg 185: Scikit's Standard Scaler (handling large scale variables
+    easily)
 
 ###### Scaling
 
@@ -658,7 +661,8 @@ have an inverse relationship and I'm using that term very lightly and in a
 purely descriptive sense). The `low_e` epoch seems to have more balanced rates
 although low.
 
-Lets examine a plot to visualize if `low_e` is actually the most favorable:
+Lets examine a plot to visualize if `low_e` is actually the epoch with most
+favorable performance:
 
 ```{python}
 #| eval: true
@@ -673,8 +677,8 @@ epoch_labels= {"low_e": "Low Rate Epoch", "mid_e": "Mid rate Epoch", "high_e": "
 plt.figure(figsize=(8,6))
 
 for epoch, group in epoch_results.groupby("epoch"):
-  false_positive_rate, true_positive_rate, thresholds = roc_curve(group["y_true"], group["y_prob"])
-  roc_auc = roc_auc_score(group["y_true"], group["y_prob"])
+  false_positive_rate, true_positive_rate, thresholds= roc_curve(group["y_true"], group["y_prob"])
+  roc_auc= roc_auc_score(group["y_true"], group["y_prob"])
   plt.plot(false_positive_rate, true_positive_rate,
   label=f"{epoch_labels[epoch]} (AUC={roc_auc:.2f})")
 
@@ -711,13 +715,11 @@ stable.
 plt.figure(figsize=(10,10))
 
 for epoch, group in epoch_results.groupby("epoch"):
-    prob_true, prob_pred= calibration_curve(
-        group["y_true"], group["y_prob"], n_bins=8
-    )
-    
-    plt.plot(prob_pred, prob_true, marker='.', label=epoch)
+  prob_true, prob_pred= calibration_curve(group["y_true"], group["y_prob"], n_bins=8)
+  plt.plot(prob_pred, prob_true, marker='.', 
+  label=f"{epoch_labels[epoch]}")
 
-plt.plot([0,1],[0,1],'-')
+plt.plot([0,1],[0,1],'--', color= "gray")
 plt.title("Calibration Curves by Epoch", pad=15)
 plt.xlabel("model prediction")
 plt.ylabel("actual outcomes")
@@ -749,8 +751,63 @@ report the lift and hit rate for campaigns that target the top 10% and top 50%
 of potential customers.
 :::
 
-```{python}
+The Lift curve
 
+```{python}
+#| eval: true
+#| code-fold: true
+#| label: Lift_Curves
+#| code-summary: "Lift Curves Setup Code"
+
+#-- Result catcher--
+lift_results= []
+
+#-- Grouping by Epoch--
+for epoch, group in epoch_results.groupby("epoch"):
+  group= group.sort_values("y_prob", ascending=False).reset_index(drop=True)
+  successfulness= group["y_true"].mean()
+  for x in [0.01, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.75, 1.00]:
+    n= max(1, int(len(group) * x))
+    top_x= group.iloc[:n]
+    hit_rate= top_x["y_true"].mean()
+    lift= hit_rate / successfulness
+    lift_results.append({"epoch": epoch, "campaign_target": x * 100, "hit_rate": hit_rate, "lift": lift})
+
+#-- Convert to dataframe--
+results= pd.DataFrame(lift_results)
+```
+
+The plot below shows the lift rates overall at 1-100% target. The 1% and 50% are
+marked by a circle. We can observe that the epoch performance with the highest
+lift in selecting the top 1% of targets is the Mid Rate Epoch. At a 50% target,
+the best performing is the Low Rate Epoch. Lift drops dramatically when
+targeting more that 20% so at the very least there is benefit to using the model
+for target selection than just random calls. Probably the top 1% considering the
+lift is over 4.
+
+```{python}
+#| eval: true
+#| code-fold: true
+#| label: Lift_Curve-Plot
+#| code-summary: "Lift Curve Plot Code"
+
+plt.figure(figsize=(10,8))
+
+for epoch, group in results.groupby("epoch"):
+  plt.plot(group["campaign_target"], group["lift"],
+  label=f"{epoch_labels[epoch]}")
+#-- marking the 1% and 50%--
+  mark= group[group["campaign_target"].isin([1, 50])]
+  plt.scatter(mark["campaign_target"], mark["lift"], zorder=3)
+
+#-- Random Baseline--
+plt.axhline(1, linestyle="--", label="Chance", color= "gray")
+
+plt.title("Lift Curves by Epoch", pad=15)
+plt.xlabel("Percent of Customers Targeted")
+plt.ylabel("Lift")
+plt.legend()
+plt.show()
 ```
 
 ::: {.card .border-primary .mb-3 style="padding: 20px"}
@@ -771,4 +828,26 @@ deposits the bank sells). This trade-off is often referred to as a "multi-armed
 bandit" problem, see <https://en.wikipedia.org/wiki/Multi-armed_bandit>.
 :::
 
+The existence of the variable `euribor3m` suggests the marketing team might have
+already considered optimizing. Euribor is an established reference and is
+published daily. This means they calculated a single (probably averaged) rate
+and selected 3 months as an economic market. They were aware of the need for
+epochs. Also there are several variables providing context about client contacts
+including contact type. It seems they were even considering if calling a
+landline or cellphone might influence a clients decision by including this.
+
 --------------------------------------------------------------------------------
+
+## Bibliography
+
+Module 4: Classification
+
+<https://georgehagstrom.github.io/DATA622Spring2026/modules/module4.html>
+
+Cumulative Response and Lift Curves- Mitchell R. Wenger
+
+<https://www.youtube.com/watch?v=DTC7BkhNZYk&t=13s>
+
+Multi-Armed Bandit : Data Science Concepts- Ritvikmath
+
+<https://www.youtube.com/watch?v=e3L4VocZnnQ>
